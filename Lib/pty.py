@@ -123,15 +123,16 @@ def _writen(fd, data):
         n = os.write(fd, data)
         data = data[n:]
 
-def _read(fd):
+def _read(child_pid, fd):
     """Default read function."""
     return os.read(fd, 1024)
 
-def _copy(master_fd, master_read=_read, stdin_read=_read):
+def _copy(pid, master_fd, master_read=_read, stdin_read=_read):
     """Parent copy loop.
     Copies
             pty master -> standard output   (master_read)
             standard input -> pty master    (stdin_read)"""
+    env = (pid, master_fd)
     fds = [master_fd, STDIN_FILENO]
     while True:
         # The expected path to leave this infinite loop is that the
@@ -141,13 +142,13 @@ def _copy(master_fd, master_read=_read, stdin_read=_read):
         # Linux or returns EOF on BSD.
         rfds, wfds, xfds = select(fds, [], [])
         if master_fd in rfds:
-            data = master_read(master_fd)
+            data = master_read(env, master_fd)
             if not data:  # Reached EOF.
                 return
             else:
                 os.write(STDOUT_FILENO, data)
         if STDIN_FILENO in rfds:
-            data = stdin_read(STDIN_FILENO)
+            data = stdin_read(env, STDIN_FILENO)
             if not data:
                 fds.remove(STDIN_FILENO)
             else:
@@ -176,7 +177,7 @@ def spawn(argv, master_read=_read, stdin_read=_read):
     except tty.error:    # This is the same as termios.error
         restore = 0
     try:
-        _copy(master_fd, master_read, stdin_read)
+        _copy(pid, master_fd, master_read, stdin_read)
     except OSError:
         # Some OSes never return an EOF on pty, just raise
         # an error instead.
